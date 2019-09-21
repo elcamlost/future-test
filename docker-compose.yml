@@ -1,0 +1,36 @@
+version: '3'
+services:
+  db:
+    image: postgres:11
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: pass
+      TZ: Europe/Moscow
+      PGTZ: Europe/Moscow
+    volumes:
+      - ${PWD}/tmp/pg_data:/var/lib/postgresql/data
+    ports:
+      # to allow connections from local IDE
+      - "127.0.0.1:32769:5432"
+  plack:
+    depends_on:
+      - db
+    environment:
+      AUTHOR_TESTING: 1
+      RUN_MODE: development
+      TZ: ${TZ:-Europe/Moscow}
+      PERL5LIB: /app/local/lib/perl5
+    volumes:
+      - ${PWD}/:/app
+    build: .
+    ports:
+      - "127.0.0.1:5000:5000"
+    command: [
+      "./bin/wait-for-it.sh", "db:5432", "--",
+      "plackup",
+      "-s", "Gazelle",
+      "--port", "5000",
+      "--max-reqs-per-child", "50000",
+      "-E", "development",
+      "-a", "app.psgi"
+    ]
