@@ -1,12 +1,9 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use experimental 'signatures';
+use FindBin qw/$RealBin/;
+use lib $RealBin . '/../lib';
 
-my $app = sub {
-  return [
-    '200',
-    [ 'Content-Type' => 'text/html' ],
-    [ 42 ],
-  ];
-};
+use FT;
+
+my $app = sub { FT->run_psgi(@_); };

@@ -1,11 +1,11 @@
 #!/usr/bin/env perl
 use strict;
 use warnings 'FATAL';
-use Test2::V0;
+use Test2::V0 -target => 'FT';
 use Plack::Test;
 use HTTP::Request::Common;
 
-my $app = do './app.psgi';
+my $app = sub { FT->run_psgi(@_); };
 my $test = Plack::Test->create($app);
 
 my $res = $test->request(GET "/"); # HTTP::Response

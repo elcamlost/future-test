@@ -4,6 +4,7 @@ requires 'Cpanel::JSON::XS';
 requires 'Future::AsyncAwait';
 requires 'Syntax::Keyword::Try';
 requires 'Gazelle';
+requires 'Devel::Assert';
 
 on 'test' => sub {
     requires 'Test2::Suite',                '0.000115';

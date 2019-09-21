@@ -1,0 +1,5 @@
+-Ilocal/lib/perl5
+-Ilib
+-It
+-PDevel::Assert::Global
+-MDevel::Assert::Global
