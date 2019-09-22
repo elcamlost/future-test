@@ -6,28 +6,32 @@ use experimental 'signatures';
 use DBD::Pg ':async';
 use Devel::Assert;
 use Plack::Request;
+use Plack::Response;
 use IO::Async::Loop;
+use Cpanel::JSON::XS ();
 use Time::HiRes;
 use Syntax::Keyword::Try;
 use Encode qw/decode_utf8 encode_utf8/;
 
 use constant {
-    SEARCH_FIELDS => [qw/period owner owner_inn type contractor contractor_inn date number/],
-    ORGANIZATIONS => [qw/id name inn/],
-    INVOICES      => [qw/period owner_inn type contractor_inn date number json/],
+    SEARCH_FIELDS => [ qw/period owner owner_inn type contractor contractor_inn date number/ ],
+    ORGANIZATIONS => [ qw/id name inn/ ],
+    INVOICES      => [ qw/period owner_inn type contractor_inn date number json/ ],
+    LOOP_TIMEOUT  => 0.1,
 };
 
 #@type IO::Async::Loop
 my $loop;
 
+
 sub run_psgi ($class, $env) {
-    $loop = $env->{'io.async.loop'} // IO::Async::Loop->new;
+    # define loop for tests with // operator
+    $loop = $env->{'io.async.loop'} //= IO::Async::Loop->new;
 
-    # validate and extract search hash from query
-
-    my $query;
+    # validate request and extract filter hash from query
+    my $filter;
     try {
-        $query = parse_request($env);
+        $filter = parse_request($env);
     } catch {
         return [
             '400',
@@ -37,30 +41,32 @@ sub run_psgi ($class, $env) {
     };
 
     # optionally search inn based on hash
-    if (exists $query->{owner} || exists $query->{contractor}) {
+    if (exists $filter->{owner} || exists $filter->{contractor}) {
         my $inns = lookup_inn({
             map {
-                $query->{$_} ? ($_ => $query->{$_}) : ()
+                $filter->{$_} ? ($_ => $filter->{$_}) : ()
             } qw/owner contractor/}
         );
+        delete $filter->{$_} for qw/owner contractor/;
+        if (scalar keys $inns->%*) {
+            $filter->@{keys $inns->%*} = values $inns->%*;
+        }
     }
 
     # search invoices
+    my $invoices = $class->lookup_invoices($filter);
 
     # prepare answer
-
-    $class->invoices();
-    return [
-        '200',
-        [ 'Content-Type' => 'text/html' ],
-        [ 42 ],
-    ];
+    my $res = Plack::Response->new(200);
+    $res->content_type('application/json; charset=utf-8');
+    $res->body($class->encoder->encode($invoices));
+    return $res->finalize;;
 }
 
 sub parse_request ($env) {
     my $req = Plack::Request->new($env);
-    my %query = $req->parameters->%*;
-    %query = map { $_ => decode_utf8($query{$_}) } keys %query;
+    my %filter = $req->parameters->%*;
+    %filter = map { $_ => decode_utf8($filter{$_}) } keys %filter;
 
     state $validator = {
         owner_inn      => qr/^[0-9]{10,12}$/,
@@ -70,12 +76,12 @@ sub parse_request ($env) {
         date           => qr/^[0-9]{4}-[0-9]{2}-[0-9]]{2}$/,
     };
     foreach my $key (keys $validator->%*) {
-        next unless exists $query{$key};
-        next if $query{$key} =~ $validator->{$key};
+        next unless exists $filter{$key};
+        next if $filter{$key} =~ $validator->{$key};
         die "key $key is not valid";
     }
 
-    return \%query;
+    return \%filter;
 }
 
 sub lookup_inn($q) {
@@ -93,17 +99,21 @@ sub lookup_inn($q) {
         $sth{$field}->execute($value);
     }
 
-    my @inns;
-    while (scalar @inns < scalar keys %sth) {
+    my %inns;
+    my $i = 0;
+    while ($i < scalar keys %sth) {
         for my $field (keys %sth) {
             next unless $sth{$field}->pg_ready;
             $sth{$field}->pg_result();
             my ($inn) = $sth{$field}->fetchrow_array();
-            push @inns, $inn;
+            $i ++;
+            next unless defined $inn;
+            $inns{"${field}_inn"} = $inn;
+
         }
-        $loop->loop_once(0.1);
+        $loop->loop_once(LOOP_TIMEOUT);
     }
-    return [ grep {defined} @inns ];
+    return \%inns;
 }
 
 sub db {
@@ -113,22 +123,41 @@ sub db {
     return $dbh;
 }
 
-sub invoices ($class) {
-    my $sth = $class->db->prepare(<<~'SQL', {pg_async => PG_ASYNC});
-        select * from invoices
-        SQL
-    $sth->execute();
+sub encoder {
+    state $encoder = Cpanel::JSON::XS->new->utf8;
+    return $encoder;
+}
 
-    while (!$class->db->pg_ready) {
-        $loop->loop_once(0.1);
+sub lookup_invoices ($class, $filter) {
+    state $fields = join ',', INVOICES->@*;
+    my $query = <<~"SQL";
+        SELECT $fields FROM invoices
+            WHERE TRUE
+        SQL
+
+    my @binds;
+    for my $field (keys $filter->%*) {
+        my ($op, $value);
+        if ($field =~ /_inn$/) {
+            $op = 'ILIKE';
+            $value = '%' . $filter->{$field} . '%';
+        } else {
+            $op = '=';
+            $value = $filter->{$field};
+        }
+        $query .= "\n\tAND $field $op ?";
+        push @binds, $value;
     }
 
-    print "The query has finished. Gathering results\n";
-    my $result = $sth->pg_result;
-    print "Result: $result\n";
-    my $info = $sth->fetchall_arrayref();
+    my $sth = $class->db->prepare($query, {pg_async => PG_ASYNC});
+    $sth->execute(@binds);
 
-    return 1;
+    while (!$class->db->pg_ready) {
+        $loop->loop_once(LOOP_TIMEOUT);
+    }
+
+    $sth->pg_result;
+    return $sth->fetchall_arrayref({});
 }
 
 1;
