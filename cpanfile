@@ -3,7 +3,7 @@ requires 'Database::Async';
 requires 'Cpanel::JSON::XS';
 requires 'Future::AsyncAwait';
 requires 'Syntax::Keyword::Try';
-requires 'Gazelle';
+requires 'Net::Async::HTTP::Server';
 requires 'Devel::Assert';
 
 on 'test' => sub {
