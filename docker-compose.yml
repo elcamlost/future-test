@@ -21,6 +21,7 @@ services:
       TZ: ${TZ:-Europe/Moscow}
       PERL5LIB: /app/local/lib/perl5
       PERL_FUTURE_DEBUG: 1
+      DBI_TRACE: SQL
     volumes:
       - ${PWD}/:/app
     build: .

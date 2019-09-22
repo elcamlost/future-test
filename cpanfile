@@ -5,6 +5,8 @@ requires 'Future::AsyncAwait';
 requires 'Syntax::Keyword::Try';
 requires 'Net::Async::HTTP::Server';
 requires 'Devel::Assert';
+requires 'DBI';
+requires 'DBD::Pg';
 
 on 'test' => sub {
     requires 'Test2::Suite',                '0.000115';
