@@ -15,9 +15,9 @@ use Syntax::Keyword::Try;
 use Encode qw/decode_utf8 encode_utf8/;
 
 use constant {
-    SEARCH_FIELDS => [ qw/period owner owner_inn type contractor contractor_inn date number/ ],
-    ORGANIZATIONS => [ qw/id name inn/ ],
-    INVOICES      => [ qw/period owner_inn type contractor_inn date number json/ ],
+    SEARCH_FIELDS => [qw/period owner owner_inn type contractor contractor_inn date number/],
+    ORGANIZATIONS => [qw/id name inn/],
+    INVOICES      => [qw/period owner_inn type contractor_inn date number json/],
     LOOP_TIMEOUT  => 0.1,
 };
 
@@ -26,6 +26,7 @@ my $loop;
 
 
 sub run_psgi ($class, $env) {
+
     # define loop for tests with // operator
     $loop = $env->{'io.async.loop'} //= IO::Async::Loop->new;
 
@@ -34,11 +35,7 @@ sub run_psgi ($class, $env) {
     try {
         $filter = parse_request($env);
     } catch {
-        return [
-            '400',
-            [ 'Content-Type' => 'text/html' ],
-            [ "$@" ],
-        ];
+        return [ '400', [ 'Content-Type' => 'text/html' ], ["$@"], ];
     };
 
     # optionally search inn based on hash
@@ -46,8 +43,8 @@ sub run_psgi ($class, $env) {
         my $inns = $class->lookup_inn({
             map {
                 $filter->{$_} ? ($_ => $filter->{$_}) : ()
-            } qw/owner contractor/}
-        );
+            } qw/owner contractor/
+        });
         delete $filter->{$_} for qw/owner contractor/;
         if (scalar keys $inns->%*) {
             $filter->@{keys $inns->%*} = values $inns->%*;
@@ -61,11 +58,11 @@ sub run_psgi ($class, $env) {
     my $res = Plack::Response->new(200);
     $res->content_type('application/json; charset=utf-8');
     $res->body($class->encoder->encode($invoices));
-    return $res->finalize;;
+    return $res->finalize;
 }
 
 sub parse_request ($env) {
-    my $req = Plack::Request->new($env);
+    my $req    = Plack::Request->new($env);
     my %filter = $req->parameters->%*;
     %filter = map { $_ => decode_utf8($filter{$_}) } keys %filter;
 
@@ -109,9 +106,9 @@ sub lookup_inn ($class, $filter) {
             next unless $sth{$field}->pg_ready;
             $sth{$field}->pg_result();
             my $data = $sth{$field}->fetchall_arrayref();
-            my $inn = $data->[0][0];
+            my $inn  = $data->[0][0];
             $class->db_pool->enqueue_dbh($sth{$field}->{Database});
-            $i ++;
+            $i++;
             next unless defined $inn;
             $inns{"${field}_inn"} = $inn;
 
@@ -123,9 +120,14 @@ sub lookup_inn ($class, $filter) {
 }
 
 sub db_pool {
-    state $pool = FT::Pool->new('dbi:Pg:dbname=ft;host=db', 'dev', 'pass', {
-        AutoCommit => 0, RaiseError => 1
-    });
+    state $pool = FT::Pool->new(
+        'dbi:Pg:dbname=ft;host=db',
+        'dev', 'pass',
+        {
+            AutoCommit => 0,
+            RaiseError => 1
+        }
+    );
     return $pool;
 }
 
@@ -145,10 +147,10 @@ sub lookup_invoices ($class, $filter) {
     for my $field (keys $filter->%*) {
         my ($op, $value);
         if ($field =~ /_inn$/) {
-            $op = 'ILIKE';
+            $op    = 'ILIKE';
             $value = '%' . $filter->{$field} . '%';
         } else {
-            $op = '=';
+            $op    = '=';
             $value = $filter->{$field};
         }
         $query .= "\n\tAND $field $op ?";

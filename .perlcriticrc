@@ -1,0 +1,79 @@
+severity    = brutal
+
+# VS Code perlcritic extension does not use that
+verbose     = 8
+
+# limits number of reported violations (sorted by severity)
+top         = 50
+
+color       = 1
+
+# VS Code perlcritic extension does not use that
+# `less` is not available on Windows by default so...
+# pager       = more
+
+
+#exclude     = Subroutines::ProhibitExplicitReturnUndef Subroutines::ProhibitSubroutinePrototypes Modules::ProhibitMultiplePackages Subroutines::RequireFinalReturn ValuesAndExpressions::ProhibitConstantPragma RegularExpressions::ProhibitComplexRegexes RegularExpressions::ProhibitUnusualDelimiters RegularExpressions::RequireDotMatchAnything RegularExpressions::RequireExtendedFormatting RegularExpressions::RequireLineBoundaryMatching ControlStructures::ProhibitPostfixControls Modules::RequireVersionVar ValuesAndExpressions::ProhibitNoisyQuotes Modules::RequireNoMatchVarsWithUseEnglish References::ProhibitDoubleSigils ControlStructures::ProhibitUnlessBlocks ValuesAndExpressions::ProhibitMagicNumbers ValuesAndExpressions::ProhibitEmptyQuotes BuiltinFunctions::ProhibitUselessTopic
+
+[TestingAndDebugging::ProhibitNoWarnings]
+allow = redefine once
+
+## $+ for %+ hash and named regex captures
+[Variables::ProhibitPunctuationVars]
+allow = @* %* $@ $! $+ $$ $<
+
+# disable modules
+
+## subroutines
+[-Subroutines::ProhibitSubroutinePrototypes]
+[-Subroutines::RequireFinalReturn]
+[-Subroutines::ProhibitExplicitReturnUndef]
+[Subroutines::ProhibitManyArgs]
+skip_object = 1
+max_arguments = 6
+
+## modules
+[-Modules::RequireVersionVar]
+[-Modules::ProhibitMultiplePackages]
+
+## ControlStructures
+[-ControlStructures::ProhibitUnlessBlocks]
+[-ControlStructures::ProhibitPostfixControls]
+
+## ValuesAndExpressions
+[-ValuesAndExpressions::ProhibitConstantPragma]
+[-ValuesAndExpressions::ProhibitNoisyQuotes]
+
+### disable because of auction macros
+[-ValuesAndExpressions::RequireInterpolationOfMetachars]
+
+[ValuesAndExpressions::ProhibitMagicNumbers]
+allowed_values = -1..10 1024 0..1:by(0.1) 2.5 2.4 2.3 1.1 1.2 100 1000 200..204 400..405 500..502
+
+## RegularExpressions
+### to not force xms
+[-RegularExpressions::RequireDotMatchAnything]
+[-RegularExpressions::RequireExtendedFormatting]
+[-RegularExpressions::RequireLineBoundaryMatching]
+### to allow m!!
+[-RegularExpressions::ProhibitUnusualDelimiters]
+
+[-RegularExpressions::ProhibitEnumeratedClasses]
+[-RegularExpressions::ProhibitEscapedMetacharacters]
+
+## CodeLayout
+[-CodeLayout::ProhibitParensWithBuiltins]
+
+## Documentation
+[Documentation::RequirePodSections]
+lib_sections    = NAME | SYNOPSIS | METHODS
+script_sections = NAME | USAGE | OPTIONS
+
+## Other
+### disabled until support for postfix dereference https://github.com/Perl-Critic/Perl-Critic/issues/578
+[-References::ProhibitDoubleSigils]
+[-ValuesAndExpressions::ProhibitEmptyQuotes]
+[-ErrorHandling::RequireCarping]
+
+[ValuesAndExpressions::ProhibitLongChainsOfMethodCalls]
+max_chain_length=6

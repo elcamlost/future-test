@@ -1,0 +1,20 @@
+-pbp       # Start with Perl Best Practices
+-w         # Show all warnings
+-l=100     # Characters per line
+-mbl=2     # No more than 2 blank lines
+-i=4       # Indentation is 4 columns
+-ci=4      # Continuation indentation is 4 columns
+-vt=0      # Less vertical tightness
+-vtc=0     #
+-pt=2      # High parenthesis tightness
+-bt=2      # High brace tightness
+-sbt=1     # Average square bracket tightness
+-wn        # Weld nested containers
+-bom       # breaks before the arrow are preserved in method call chain
+-isbc      # Don't indent comments without leading space
+-ce        # use cuddled else
+-cbl=sort,map,grep,pairgrep,all,firstidx
+-ole=unix  # use unix line endings
+-tso       # tight-secret-operators
+-asc       # add any missing optional semicolon at the end of a line
+-cab=1     # break at all commas after => if container is open, EXCEPT FOR one-line containers

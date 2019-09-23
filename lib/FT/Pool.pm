@@ -9,17 +9,17 @@ use Devel::Assert;
 use constant MAX_CONNECTION => 10;
 
 sub new ($class, $dsn, $username, $password, $opts = {}) {
-    assert (ref $dsn eq '');
-    assert (ref $username eq '');
-    assert (ref $password eq '');
-    assert (ref $opts eq 'HASH');
+    assert(ref $dsn eq '');
+    assert(ref $username eq '');
+    assert(ref $password eq '');
+    assert(ref $opts eq 'HASH');
 
     my %attrs;
-    $attrs{dsn} = $dsn;
+    $attrs{dsn}      = $dsn;
     $attrs{username} = $username;
     $attrs{password} = $password;
-    $attrs{options} = {$opts->%*};
-    $attrs{queue} = [];
+    $attrs{options}  = {$opts->%*};
+    $attrs{queue}    = [];
     bless \%attrs, ref $class || $class;
 }
 
@@ -37,7 +37,6 @@ sub enqueue_dbh ($self, $dbh) {
     } else {
         confess q[can't enqueue invalid handle];
     }
-
 }
 
 1;
