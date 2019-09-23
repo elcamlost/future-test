@@ -37,6 +37,7 @@ inc/
 /tmp
 
 # IDEA
+_Deparsed_XSubs.pm
 .idea
 *.iml
 

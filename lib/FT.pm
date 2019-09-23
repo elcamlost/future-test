@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use experimental 'signatures';
 use DBD::Pg ':async';
+use FT::Pool;
 use Devel::Assert;
 use Plack::Request;
 use Plack::Response;
@@ -42,7 +43,7 @@ sub run_psgi ($class, $env) {
 
     # optionally search inn based on hash
     if (exists $filter->{owner} || exists $filter->{contractor}) {
-        my $inns = lookup_inn({
+        my $inns = $class->lookup_inn({
             map {
                 $filter->{$_} ? ($_ => $filter->{$_}) : ()
             } qw/owner contractor/}
@@ -84,18 +85,20 @@ sub parse_request ($env) {
     return \%filter;
 }
 
-sub lookup_inn($q) {
+sub lookup_inn ($class, $filter) {
     assert(ref $loop eq 'IO::Async::Loop');
-    assert(ref $q eq 'HASH');
-    assert(scalar keys $q->%* > 0);
+    assert(ref $filter eq 'HASH');
+    assert(scalar keys $filter->%* > 0);
+
 
     my %sth;
     for my $field (qw/owner contractor/) {
-        next unless exists $q->{$field};
-        $sth{$field} = __PACKAGE__->db->prepare_cached(<<~'SQL', {pg_async => PG_ASYNC});
+        next unless exists $filter->{$field};
+        my $dbh = $class->db_pool->dequeue_dbh;
+        $sth{$field} = $dbh->prepare_cached(<<~'SQL', {pg_async => PG_ASYNC});
             SELECT inn FROM organizations WHERE name ILIKE ?
             SQL
-        my $value = '%' . $q->{$field} . '%';
+        my $value = '%' . $filter->{$field} . '%';
         $sth{$field}->execute($value);
     }
 
@@ -105,7 +108,9 @@ sub lookup_inn($q) {
         for my $field (keys %sth) {
             next unless $sth{$field}->pg_ready;
             $sth{$field}->pg_result();
-            my ($inn) = $sth{$field}->fetchrow_array();
+            my $data = $sth{$field}->fetchall_arrayref();
+            my $inn = $data->[0][0];
+            $class->db_pool->enqueue_dbh($sth{$field}->{Database});
             $i ++;
             next unless defined $inn;
             $inns{"${field}_inn"} = $inn;
@@ -113,14 +118,15 @@ sub lookup_inn($q) {
         }
         $loop->loop_once(LOOP_TIMEOUT);
     }
+
     return \%inns;
 }
 
-sub db {
-    state $dbh = DBI->connect('dbi:Pg:dbname=ft;host=db', 'dev', 'pass', {
-        AutoCommit=>0,RaiseError=>1
+sub db_pool {
+    state $pool = FT::Pool->new('dbi:Pg:dbname=ft;host=db', 'dev', 'pass', {
+        AutoCommit => 0, RaiseError => 1
     });
-    return $dbh;
+    return $pool;
 }
 
 sub encoder {
@@ -149,15 +155,18 @@ sub lookup_invoices ($class, $filter) {
         push @binds, $value;
     }
 
-    my $sth = $class->db->prepare($query, {pg_async => PG_ASYNC});
+    my $dbh = $class->db_pool->dequeue_dbh;
+    my $sth = $dbh->prepare($query, {pg_async => PG_ASYNC});
     $sth->execute(@binds);
 
-    while (!$class->db->pg_ready) {
+    while (!$sth->pg_ready) {
         $loop->loop_once(LOOP_TIMEOUT);
     }
 
     $sth->pg_result;
-    return $sth->fetchall_arrayref({});
+    my $data = $sth->fetchall_arrayref({});
+    $class->db_pool->enqueue_dbh($dbh);
+    return $data;
 }
 
 1;
