@@ -3,12 +3,13 @@ use 5.028;
 use strict;
 use warnings;
 use experimental 'signatures';
-use DBD::Pg ':async';
+use Carp qw/confess croak/;
 use FT::Pool;
 use Devel::Assert;
 use Plack::Request;
 use Plack::Response;
 use IO::Async::Loop;
+use IO::Async::Stream;
 use Cpanel::JSON::XS ();
 use Time::HiRes;
 use Syntax::Keyword::Try;
@@ -30,35 +31,35 @@ sub run_psgi ($class, $env) {
     # define loop for tests with // operator
     $loop = $env->{'io.async.loop'} //= IO::Async::Loop->new;
 
+    my $res = Plack::Response->new(200);
+    $res->content_type('application/json; charset=utf-8');
+
     # validate request and extract filter hash from query
     my $filter;
     try {
         $filter = parse_request($env);
     } catch {
-        return [ '400', [ 'Content-Type' => 'text/html' ], ["$@"], ];
+        $res->body("$@");
+        $res->status(400);
+        return $res->finalize;
     };
 
-    # optionally search inn based on hash
-    if (exists $filter->{owner} || exists $filter->{contractor}) {
-        my $inns = $class->lookup_inn({
-            map {
-                $filter->{$_} ? ($_ => $filter->{$_}) : ()
-            } qw/owner contractor/
-        });
-        delete $filter->{$_} for qw/owner contractor/;
-        if (scalar keys $inns->%*) {
-            $filter->@{keys $inns->%*} = values $inns->%*;
-        }
-    }
+    try {
+        # optionally search inn based on hash
+        $filter = $class->add_inn_to_filter($filter->%*);
 
-    # search invoices
-    my $invoices = $class->lookup_invoices($filter);
+        # search invoices
+        my $invoices = $class->lookup_invoices($filter->%*);
 
-    # prepare answer
-    my $res = Plack::Response->new(200);
-    $res->content_type('application/json; charset=utf-8');
-    $res->body($class->encoder->encode($invoices));
-    return $res->finalize;
+        # prepare answer
+        $res->body($class->encoder->encode($invoices));
+        return $res->finalize;
+    } catch {
+        $res->body("$@");
+        $res->status(500);
+        return $res->finalize;
+    };
+
 }
 
 sub parse_request ($env) {
@@ -76,47 +77,38 @@ sub parse_request ($env) {
     foreach my $key (keys $validator->%*) {
         next unless exists $filter{$key};
         next if $filter{$key} =~ $validator->{$key};
-        die "key $key is not valid";
+        croak "key $key is not valid";
     }
 
     return \%filter;
 }
 
-sub lookup_inn ($class, $filter) {
-    assert(ref $loop eq 'IO::Async::Loop');
-    assert(ref $filter eq 'HASH');
-    assert(scalar keys $filter->%* > 0);
-
-
-    my %sth;
+sub add_inn_to_filter ($class, %filter) {
+    my (@queries, @binds);
     for my $field (qw/owner contractor/) {
-        next unless exists $filter->{$field};
-        my $dbh = $class->db_pool->dequeue_dbh;
-        $sth{$field} = $dbh->prepare_cached(<<~'SQL', {pg_async => PG_ASYNC});
-            SELECT inn FROM organizations WHERE name ILIKE ?
+        next unless exists $filter{$field};
+
+        my $type = "${field}_inn";
+        push @queries, <<~"SQL";
+            select '$type' as type, inn
+            from organizations where name ilike ?
             SQL
-        my $value = '%' . $filter->{$field} . '%';
-        $sth{$field}->execute($value);
+        my $value = delete $filter{$field};
+        push @binds, "%$value%";
     }
+    return \%filter unless scalar @queries;
 
-    my %inns;
-    my $i = 0;
-    while ($i < scalar keys %sth) {
-        for my $field (keys %sth) {
-            next unless $sth{$field}->pg_ready;
-            $sth{$field}->pg_result();
-            my $data = $sth{$field}->fetchall_arrayref();
-            my $inn  = $data->[0][0];
-            $class->db_pool->enqueue_dbh($sth{$field}->{Database});
-            $i++;
-            next unless defined $inn;
-            $inns{"${field}_inn"} = $inn;
+    my $query = join "\nUNION\n", @queries;
+    my $dbh = $class->db_pool->dequeue_dbh();
+    my $sth = $dbh->prepare($query);
+    $sth->execute(@binds);
+    my $data = $sth->fetchall_arrayref({});
+    $class->db_pool->enqueue_dbh($dbh);
 
-        }
-        $loop->loop_once(LOOP_TIMEOUT);
+    foreach my $row ($data->@*) {
+        $filter{$row->{type}} = $row->{inn};
     }
-
-    return \%inns;
+    return \%filter;
 }
 
 sub db_pool {
@@ -136,7 +128,7 @@ sub encoder {
     return $encoder;
 }
 
-sub lookup_invoices ($class, $filter) {
+sub lookup_invoices ($class, %filter) {
     state $fields = join ',', INVOICES->@*;
     my $query = <<~"SQL";
         SELECT $fields FROM invoices
@@ -144,28 +136,22 @@ sub lookup_invoices ($class, $filter) {
         SQL
 
     my @binds;
-    for my $field (keys $filter->%*) {
+    for my $field (keys %filter) {
         my ($op, $value);
         if ($field =~ /_inn$/) {
             $op    = 'ILIKE';
-            $value = '%' . $filter->{$field} . '%';
+            $value = "%$filter{$field}%";
         } else {
             $op    = '=';
-            $value = $filter->{$field};
+            $value = $filter{$field};
         }
         $query .= "\n\tAND $field $op ?";
         push @binds, $value;
     }
 
     my $dbh = $class->db_pool->dequeue_dbh;
-    my $sth = $dbh->prepare($query, {pg_async => PG_ASYNC});
+    my $sth = $dbh->prepare($query);
     $sth->execute(@binds);
-
-    while (!$sth->pg_ready) {
-        $loop->loop_once(LOOP_TIMEOUT);
-    }
-
-    $sth->pg_result;
     my $data = $sth->fetchall_arrayref({});
     $class->db_pool->enqueue_dbh($dbh);
     return $data;
